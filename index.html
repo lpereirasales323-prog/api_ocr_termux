@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>OCR App</title>
+</head>
+<body>
+    <h2>Enviar imagem para OCR</h2>
+
+    <input type="file" id="img" accept="image/*"><br><br>
+    <button onclick="enviar()">Enviar para API</button>
+
+    <h3>Resultado:</h3>
+    <pre id="resultado"></pre>
+
+<script>
+function enviar() {
+    let arquivo = document.getElementById("img").files[0];
+    if (!arquivo) {
+        alert("Escolha uma imagem primeiro!");
+        return;
+    }
+
+    let formData = new FormData();
+    formData.append("image", arquivo);
+
+    fetch("http://127.0.0.1:8000/ocr", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("resultado").innerText =
+            JSON.stringify(data, null, 2);
+    })
+    .catch(err => {
+        document.getElementById("resultado").innerText = "Erro: " + err;
+    });
+}
+</script>
+
+</body>
+</html>

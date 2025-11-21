@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/data/data/com.termux/files/home/meu_app/api/api_termux_final_cell.py", line 8, in <module>
+    import numpy as np
+ModuleNotFoundError: No module named 'numpy'
