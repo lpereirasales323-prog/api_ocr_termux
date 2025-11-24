@@ -6,3 +6,9 @@
  * Running on http://192.168.143.112:8000
 [33mPress CTRL+C to quit[0m
 127.0.0.1 - - [21/Nov/2025 15:19:11] "GET /ocr_last HTTP/1.1" 200 -
+127.0.0.1 - - [22/Nov/2025 02:35:57] code 400, message Bad request syntax ('\x00AUTH')
+127.0.0.1 - - [22/Nov/2025 02:35:57] "[31m[1m\x00AUTH[0m" 400 -
+127.0.0.1 - - [22/Nov/2025 09:06:35] code 400, message Bad request syntax ('\x00AUTH')
+127.0.0.1 - - [22/Nov/2025 09:06:35] "[31m[1m\x00AUTH[0m" 400 -
+127.0.0.1 - - [23/Nov/2025 02:35:58] code 400, message Bad request syntax ('\x00AUTH')
+127.0.0.1 - - [23/Nov/2025 02:35:58] "[31m[1m\x00AUTH[0m" 400 -

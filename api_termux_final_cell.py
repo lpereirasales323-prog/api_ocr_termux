@@ -1,15 +1,12 @@
 # -------------------------------------------------------------
-# API OCR Termux Final Otimizada - Celular (Tesseract + Pillow + NumPy)
-# Endpoint para último screenshot e melhorias no pré-processamento
+# API OCR Cloud com OCR.Space (sem Tesseract)
 # -------------------------------------------------------------
 from flask import Flask, request, jsonify
-from PIL import Image, ImageFilter, ImageOps
-import pytesseract
-import numpy as np
-import os
-import time
-import re
+from PIL import Image
+import os, time, re
 from collections import deque
+import requests
+import io
 
 # -------------------------------------------------------------
 # App
@@ -20,30 +17,27 @@ regex_mult = re.compile(r"(\d+(?:[.,]\d+)?)[xX]\b")
 history = deque(maxlen=1500)
 
 # -------------------------------------------------------------
-# UTIL — ajuste de imagem com Pillow (sem OpenCV)
+# Configurações OCR.Space
 # -------------------------------------------------------------
-def preprocess_image(path):
-    img = Image.open(path).convert("L")  # cinza
-    img = img.filter(ImageFilter.MedianFilter(size=3))  # remover ruído
-    img = ImageOps.autocontrast(img, cutoff=2)  # melhorar contraste
-    img = img.filter(ImageFilter.SHARPEN)  # aumentar nitidez
-    img = img.point(lambda x: 0 if x < 128 else 255, '1')  # binarização simples
-    return img
+OCR_SPACE_API_KEY = "K86489254288957"  # sua chave
+OCR_SPACE_API_URL = "https://api.ocr.space/parse/image"
 
-# -------------------------------------------------------------
-# OCR avançado (Tesseract)
-# -------------------------------------------------------------
-def perform_ocr(path):
+def ocr_space_file(file_bytes, filename=None, language='por'):
+    files = {'file': (filename or 'image.png', file_bytes)}
+    data = {'apikey': OCR_SPACE_API_KEY, 'language': language, 'isOverlayRequired': False}
     try:
-        pre = preprocess_image(path)
-        pre.save("/data/data/com.termux/files/home/meu_app/api/pre_temp.png")
-        # PSM 6 = Assume um bloco uniforme de texto
-        text_tess = pytesseract.image_to_string(Image.open(path), config='--psm 6')
-        text_tess_pre = pytesseract.image_to_string(pre, config='--psm 6')
-        combined = text_tess + "\n" + text_tess_pre
-        return combined
+        resp = requests.post(OCR_SPACE_API_URL, files=files, data=data, timeout=60)
+        resp.raise_for_status()
+        result = resp.json()
+        if result.get('IsErroredOnProcessing'):
+            return None, result
+        parsed = result.get('ParsedResults')
+        if parsed and len(parsed) > 0:
+            text = parsed[0].get('ParsedText','')
+            return text, result
+        return None, result
     except Exception as e:
-        return str(e)
+        return None, {"error": str(e)}
 
 # -------------------------------------------------------------
 # Extrair multiplicadores
@@ -59,23 +53,32 @@ def extract_multipliers(text):
     return values
 
 # -------------------------------------------------------------
-# Estatísticas
+# Estatísticas simples em Python puro
 # -------------------------------------------------------------
 def compute_stats(window=50):
     data = [m for (_, m) in list(history)[-window:]]
     if not data:
         return None
-    arr = np.array(data)
+    n = len(data)
+    sorted_data = sorted(data)
+    mean = sum(data)/n
+    median = sorted_data[n//2] if n%2==1 else sum(sorted_data[n//2-1:n//2+1])/2
+    std = (sum((x-mean)**2 for x in data)/n)**0.5
+    min_val = min(data)
+    max_val = max(data)
+    pct_below_2 = sum(1 for x in data if x<2)/n
+    pct_below_1_5 = sum(1 for x in data if x<1.5)/n
+    pct_above_5 = sum(1 for x in data if x>=5)/n
     return {
-        "count": len(arr),
-        "mean": float(np.mean(arr)),
-        "median": float(np.median(arr)),
-        "std": float(np.std(arr)),
-        "min": float(np.min(arr)),
-        "max": float(np.max(arr)),
-        "pct_below_2": float((arr < 2).sum()) / len(arr),
-        "pct_below_1_5": float((arr < 1.5).sum()) / len(arr),
-        "pct_above_5": float((arr >= 5).sum()) / len(arr),
+        "count": n,
+        "mean": mean,
+        "median": median,
+        "std": std,
+        "min": min_val,
+        "max": max_val,
+        "pct_below_2": pct_below_2,
+        "pct_below_1_5": pct_below_1_5,
+        "pct_above_5": pct_above_5
     }
 
 # -------------------------------------------------------------
@@ -97,7 +100,7 @@ def make_decision():
     return {"decision": "APOSTAR_MODERADO", "confidence": round(score,2), "reason": "Probabilidade moderada baseada no histórico"}
 
 # -------------------------------------------------------------
-# Função para pegar último screenshot
+# Função para pegar último screenshot (Termux)
 # -------------------------------------------------------------
 def get_last_screenshot():
     downloads_path = "/data/data/com.termux/files/home/storage/downloads/"
@@ -113,17 +116,16 @@ def get_last_screenshot():
 # -------------------------------------------------------------
 @app.route('/', methods=['GET'])
 def home():
-    return "API OCR Termux Celular rodando!", 200
+    return "API OCR.Space Celular rodando!", 200
 
 @app.route('/ocr', methods=['POST'])
 def ocr_api():
     if 'image' not in request.files:
         return jsonify({"error": "Imagem não enviada"}), 400
     img = request.files['image']
-    img_path = "/data/data/com.termux/files/home/meu_app/api/temp.png"
-    img.save(img_path)
-    text = perform_ocr(img_path)
-    multipliers = extract_multipliers(text)
+    img_bytes = img.read()
+    text, raw = ocr_space_file(img_bytes, filename=img.filename)
+    multipliers = extract_multipliers(text or "")
     for m in multipliers:
         history.append((int(time.time()), m))
     stats = compute_stats(window=50)
@@ -132,7 +134,8 @@ def ocr_api():
         "raw_text": text,
         "multipliers": multipliers,
         "stats": stats,
-        "decision": decision
+        "decision": decision,
+        "ocr_space_raw": raw
     })
 
 @app.route('/ocr_last', methods=['GET'])
@@ -140,8 +143,10 @@ def ocr_last_screenshot():
     img_path = get_last_screenshot()
     if not img_path:
         return jsonify({"error": "Nenhuma imagem encontrada na pasta Downloads"}), 404
-    text = perform_ocr(img_path)
-    multipliers = extract_multipliers(text)
+    with open(img_path, "rb") as f:
+        img_bytes = f.read()
+    text, raw = ocr_space_file(img_bytes, filename=os.path.basename(img_path))
+    multipliers = extract_multipliers(text or "")
     for m in multipliers:
         history.append((int(time.time()), m))
     stats = compute_stats(window=50)
@@ -151,7 +156,8 @@ def ocr_last_screenshot():
         "raw_text": text,
         "multipliers": multipliers,
         "stats": stats,
-        "decision": decision
+        "decision": decision,
+        "ocr_space_raw": raw
     })
 
 # -------------------------------------------------------------
